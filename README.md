@@ -40,6 +40,7 @@ step to run.
 | `salt_rounds` | No | `10` | bcrypt cost |
 | `validation_timeout` | No | `15m` | How long a held reservation blocks its seats |
 | `APP_PORT` | No | `8080` | HTTP port |
+| `LOG_LEVEL` | No | `info` | `debug`, `info`, `warn` or `error`. Health and metrics requests log at `debug` |
 
 ## API
 
@@ -176,3 +177,9 @@ internal/store/          schema and startup migration
 docs/API.md              endpoint reference
 writeup.md               design notes and how the project was built
 ```
+
+## Logging
+
+Logs are JSON on stdout, one object per line. Every request gets an `X-Request-ID` (a caller-supplied value of up to 64 safe characters is kept, otherwise one is generated). It is returned in the response header and appears as `request_id` on every log line for that request, including the access line (`method`, `route`, `status`, `duration_ms`, `user_id` when authenticated).
+
+To trace one failing request: `docker compose logs app | grep <request_id>`. On a hosted platform, use its log viewer with the same filter.

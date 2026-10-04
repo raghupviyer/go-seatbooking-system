@@ -2,7 +2,7 @@ package api
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -165,7 +165,7 @@ func (c *seatCollector) Collect(ch chan<- prometheus.Metric) {
 		shows, err = pgx.CollectRows(rows, pgx.RowToStructByPos[showSeatCounts])
 	}
 	if err != nil {
-		log.Printf("metrics: seat gauges: %v", err)
+		slog.Error("metrics: seat gauges", "err", err)
 		ch <- prometheus.MustNewConstMetric(c.up, prometheus.GaugeValue, 0)
 		return
 	}

@@ -32,7 +32,7 @@ func New(db, metricsDB *pgxpool.Pool, cfg config.Config, tokens *auth.Tokens) *S
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	handle := func(pattern string, h http.Handler) {
-		mux.Handle(pattern, s.metrics.instrument(pattern, h))
+		mux.Handle(pattern, withRoute(pattern, s.metrics.instrument(pattern, h)))
 	}
 	handle("GET /health/live", http.HandlerFunc(s.live))
 	handle("GET /health/ready", http.HandlerFunc(s.ready))
@@ -42,9 +42,9 @@ func (s *Server) Routes() http.Handler {
 	handle("POST /user/login", http.HandlerFunc(s.login))
 	handle("POST /shows", http.HandlerFunc(s.createShow))
 	handle("GET /shows/{id}", http.HandlerFunc(s.getShow))
-	handle("POST /shows/{id}/reserve", s.tokens.Require(http.HandlerFunc(s.reserve)))
-	handle("DELETE /reservations/{id}", s.tokens.Require(http.HandlerFunc(s.cancelReservation)))
-	return mux
+	handle("POST /shows/{id}/reserve", s.tokens.Require(withUser(http.HandlerFunc(s.reserve))))
+	handle("DELETE /reservations/{id}", s.tokens.Require(withUser(http.HandlerFunc(s.cancelReservation))))
+	return requestLogging(mux)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

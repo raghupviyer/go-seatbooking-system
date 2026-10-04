@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"slices"
 	"strings"
@@ -131,7 +130,7 @@ func (s *Server) reserve(w http.ResponseWriter, r *http.Request) {
 		s.metrics.decline(reasonContention)
 		writeError(w, http.StatusConflict, "seats are being booked by someone else, please retry")
 	default:
-		log.Printf("reserve: %v", err)
+		logFrom(r.Context()).Error("reserve", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 	}
 }

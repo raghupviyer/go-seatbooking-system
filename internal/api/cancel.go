@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"errors"
-	"log"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -28,7 +27,7 @@ func (s *Server) cancelReservation(w http.ResponseWriter, r *http.Request) {
 	case isContention(err):
 		writeError(w, http.StatusConflict, "reservation is being changed by another request, please retry")
 	default:
-		log.Printf("cancel: %v", err)
+		logFrom(r.Context()).Error("cancel", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 	}
 }
