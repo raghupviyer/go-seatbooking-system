@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -11,46 +10,39 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/raghupviyer/go-ticketbooking-system/internal/api"
+	"github.com/raghupviyer/go-ticketbooking-system/internal/auth"
+	"github.com/raghupviyer/go-ticketbooking-system/internal/config"
+	"github.com/raghupviyer/go-ticketbooking-system/internal/store"
 )
 
-func getenv(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
 func main() {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	db, err := pgxpool.New(ctx, getenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/ticketbooking?sslmode=disable"))
+	db, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("postgres: %v", err)
 	}
 	defer db.Close()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		defer cancel()
-
-		status := map[string]string{"postgres": "ok"}
-		code := http.StatusOK
-		if err := db.Ping(ctx); err != nil {
-			status["postgres"] = err.Error()
-			code = http.StatusServiceUnavailable
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(code)
-		json.NewEncoder(w).Encode(status)
-	})
+	if err := store.Migrate(ctx, db); err != nil {
+		log.Fatalf("migrate: %v", err)
+	}
 
 	srv := &http.Server{
-		Addr:              ":" + getenv("APP_PORT", "8080"),
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
+		Addr:              ":" + cfg.Port,
+		Handler:           api.New(db, cfg, auth.NewTokens(cfg.JWTSecret)).Routes(),
+		// Generous enough that a connection queued behind a burst of thousands is
+		// still served, while still cutting off clients that never send headers.
+		ReadHeaderTimeout: 30 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {

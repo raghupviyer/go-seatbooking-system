@@ -91,6 +91,48 @@ Returns per-seat status (available / held / confirmed) and counts. available + h
 
 
 
+
+
+
+## After the prompt
+I asked it to test the apis with all posible combiantions. It found 3 bugs in the code.
+
+1. When a user did not exist for login, it would return 500 instead of 401
+2. bearer token in lower case was rejected, even though HTTP spec says it isshould be case-inssensitive.
+3. big price was causeing overflow because it was too big to hold inside int64, so the solution is if any show with a price * per_seat_limit is more that which can fit in the variable, then it is rejected with a 409.  
+
+
+
+After load testing, the AI Agent made these changes, if an unexpected field is found, the request is dropped and no response. it representa a spoofed user.
+Found there was indeed a need of a cancel endpoint which i and not provided to it earlied, due to the ambiguity of the task description. It was mentioned as cancel endpoint or timebound.
+
+There was some refusal of requests due to docker's windows port forwarding. It was not due to the app. when the testing was done from within the docker network, all requests were accepted. This was 4k requests but 20k requests got 1.7k drops which was due to 
+"the 5-second ReadHeaderTimeout expires before saturated goroutines get scheduled, and Go reuses that same value as the keep-alive idle timeout by default." 
+So what was happening was that by the time these go routines got their chance to execute, the time to check the header was over because of other request occuping the resources. Once the timeout has happened, the go routines cannot check the headers, hence those requests got dropped out, that's how go behaves. So the solution ws to increase the timer from 5s to 30 s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Main Title
 ## Section Title
 ### Subsection Title
