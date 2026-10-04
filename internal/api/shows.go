@@ -2,7 +2,6 @@ package api
 
 import (
 	"errors"
-	"log"
 	"math"
 	"net/http"
 	"strings"
@@ -98,7 +97,7 @@ func (s *Server) createShow(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		log.Printf("create show: begin: %v", err)
+		logFrom(r.Context()).Error("create show: begin", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -119,7 +118,7 @@ func (s *Server) createShow(w http.ResponseWriter, r *http.Request) {
 		err = tx.Commit(ctx)
 	}
 	if err != nil {
-		log.Printf("create show: %v", err)
+		logFrom(r.Context()).Error("create show", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -149,7 +148,7 @@ func (s *Server) getShow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("get show: %v", err)
+		logFrom(r.Context()).Error("get show", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -164,7 +163,7 @@ func (s *Server) getShow(w http.ResponseWriter, r *http.Request) {
 		seats, err = pgx.CollectRows(rows, pgx.RowToStructByPos[seatState])
 	}
 	if err != nil {
-		log.Printf("get show seats: %v", err)
+		logFrom(r.Context()).Error("get show seats", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"slices"
 	"strings"
@@ -59,11 +58,13 @@ func (e *unavailableError) Error() string {
 func (s *Server) reserve(w http.ResponseWriter, r *http.Request) {
 	showID := r.PathValue("id")
 	if !isUUID(showID) {
+		s.metrics.decline(reasonShowNotFound)
 		writeError(w, http.StatusNotFound, errShowNotFound.Error())
 		return
 	}
 	var req reserveRequest
 	if err := decodeJSONLenient(w, r, &req); err != nil {
+		s.metrics.decline(reasonInvalidRequest)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -74,15 +75,18 @@ func (s *Server) reserve(w http.ResponseWriter, r *http.Request) {
 	case key == "":
 		key = bodyKey
 	case bodyKey != "" && bodyKey != key:
+		s.metrics.decline(reasonInvalidRequest)
 		writeError(w, http.StatusBadRequest, "Idempotency-Key header and idempotency_key body field differ")
 		return
 	}
 	if key == "" || len(key) > maxIdempotencyKeyLen {
+		s.metrics.decline(reasonInvalidRequest)
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("an idempotency key of 1-%d characters is required", maxIdempotencyKeyLen))
 		return
 	}
 	seats, err := normalizeSeats(req.Seats)
 	if err != nil {
+		s.metrics.decline(reasonInvalidRequest)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -93,31 +97,40 @@ func (s *Server) reserve(w http.ResponseWriter, r *http.Request) {
 	var limit *limitError
 	var unavailable *unavailableError
 	switch {
+	case err == nil && replayed:
+		s.metrics.decline(reasonIdempotentReplay)
+		w.Header().Set("Idempotent-Replayed", "true")
+		writeJSON(w, http.StatusCreated, res)
 	case err == nil:
-		if replayed {
-			w.Header().Set("Idempotent-Replayed", "true")
-		}
+		s.metrics.confirmed.Inc()
 		writeJSON(w, http.StatusCreated, res)
 	case errors.Is(err, errShowNotFound):
+		s.metrics.decline(reasonShowNotFound)
 		writeError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, errUnknownUser):
+		s.metrics.decline(reasonUnknownUser)
 		writeError(w, http.StatusUnauthorized, err.Error())
 	case errors.Is(err, errKeyReused):
+		s.metrics.decline(reasonIdempotencyConflict)
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.As(err, &unknown):
+		s.metrics.decline(reasonUnknownSeats)
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "unknown seats", "unknown_seats": unknown.seats})
 	case errors.As(err, &limit):
+		s.metrics.decline(reasonPerUserLimit)
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.As(err, &unavailable):
+		s.metrics.decline(reasonSeatTaken)
 		writeJSON(w, http.StatusConflict, map[string]any{
 			"error":             "some requested seats are not available",
 			"unavailable_seats": unavailable.unavailable,
 			"suggested_seats":   unavailable.suggested,
 		})
 	case isContention(err):
+		s.metrics.decline(reasonContention)
 		writeError(w, http.StatusConflict, "seats are being booked by someone else, please retry")
 	default:
-		log.Printf("reserve: %v", err)
+		logFrom(r.Context()).Error("reserve", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 	}
 }

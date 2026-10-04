@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"time"
@@ -16,6 +17,7 @@ type Config struct {
 	JWTSecret         []byte
 	SaltRounds        int
 	ValidationTimeout time.Duration
+	LogLevel          slog.Level
 }
 
 func getenv(key, fallback string) string {
@@ -30,6 +32,9 @@ func Load() (Config, error) {
 		Port:        getenv("APP_PORT", "8080"),
 		DatabaseURL: getenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/ticketbooking?sslmode=disable"),
 		JWTSecret:   []byte(os.Getenv("jwt_secret")),
+	}
+	if err := cfg.LogLevel.UnmarshalText([]byte(getenv("LOG_LEVEL", "info"))); err != nil {
+		return cfg, errors.New("LOG_LEVEL must be debug, info, warn or error")
 	}
 	if len(cfg.JWTSecret) == 0 {
 		return cfg, errors.New("jwt_secret is required")
