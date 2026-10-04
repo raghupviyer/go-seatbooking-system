@@ -36,9 +36,17 @@ func main() {
 		log.Fatalf("migrate: %v", err)
 	}
 
+	metricsCfg := db.Config().Copy()
+	metricsCfg.MaxConns = 2
+	metricsDB, err := pgxpool.NewWithConfig(ctx, metricsCfg)
+	if err != nil {
+		log.Fatalf("postgres (metrics): %v", err)
+	}
+	defer metricsDB.Close()
+
 	srv := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           api.New(db, cfg, auth.NewTokens(cfg.JWTSecret)).Routes(),
+		Addr:    ":" + cfg.Port,
+		Handler: api.New(db, metricsDB, cfg, auth.NewTokens(cfg.JWTSecret)).Routes(),
 		// Generous enough that a connection queued behind a burst of thousands is
 		// still served, while still cutting off clients that never send headers.
 		ReadHeaderTimeout: 30 * time.Second,

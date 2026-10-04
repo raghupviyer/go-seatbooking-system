@@ -16,26 +16,34 @@ import (
 )
 
 type Server struct {
-	db     *pgxpool.Pool
-	cfg    config.Config
-	tokens *auth.Tokens
+	db      *pgxpool.Pool
+	cfg     config.Config
+	tokens  *auth.Tokens
+	metrics *metrics
 }
 
-func New(db *pgxpool.Pool, cfg config.Config, tokens *auth.Tokens) *Server {
-	return &Server{db: db, cfg: cfg, tokens: tokens}
+// New builds the server. metricsDB serves only the seat gauges on /metrics; a
+// separate pool means a burst that takes every connection in db can't stop
+// the gauges from being read.
+func New(db, metricsDB *pgxpool.Pool, cfg config.Config, tokens *auth.Tokens) *Server {
+	return &Server{db: db, cfg: cfg, tokens: tokens, metrics: newMetrics(metricsDB)}
 }
 
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health/live", s.live)
-	mux.HandleFunc("GET /health/ready", s.ready)
-	mux.HandleFunc("GET /health", s.ready)
-	mux.HandleFunc("POST /user/register", s.register)
-	mux.HandleFunc("POST /user/login", s.login)
-	mux.HandleFunc("POST /shows", s.createShow)
-	mux.HandleFunc("GET /shows/{id}", s.getShow)
-	mux.Handle("POST /shows/{id}/reserve", s.tokens.Require(http.HandlerFunc(s.reserve)))
-	mux.Handle("DELETE /reservations/{id}", s.tokens.Require(http.HandlerFunc(s.cancelReservation)))
+	handle := func(pattern string, h http.Handler) {
+		mux.Handle(pattern, s.metrics.instrument(pattern, h))
+	}
+	handle("GET /health/live", http.HandlerFunc(s.live))
+	handle("GET /health/ready", http.HandlerFunc(s.ready))
+	handle("GET /health", http.HandlerFunc(s.ready))
+	handle("GET /metrics", s.metrics.handler())
+	handle("POST /user/register", http.HandlerFunc(s.register))
+	handle("POST /user/login", http.HandlerFunc(s.login))
+	handle("POST /shows", http.HandlerFunc(s.createShow))
+	handle("GET /shows/{id}", http.HandlerFunc(s.getShow))
+	handle("POST /shows/{id}/reserve", s.tokens.Require(http.HandlerFunc(s.reserve)))
+	handle("DELETE /reservations/{id}", s.tokens.Require(http.HandlerFunc(s.cancelReservation)))
 	return mux
 }
 

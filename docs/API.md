@@ -38,6 +38,29 @@ returns `503 {"status": "unavailable", "postgres": "unreachable"}`. When it's
 healthy it returns `200 {"status": "ok", "postgres": "ok"}`. The underlying
 error is logged by the server, not returned to the caller.
 
+## Metrics — `GET /metrics`
+
+Prometheus text format. The full list of metrics and how they reconcile with
+the API is in the [README](../README.md#metrics).
+
+```bash
+curl -s localhost:8080/metrics | grep ^booking_
+```
+
+```
+booking_reservations_confirmed_total 805
+booking_reservations_declined_total{reason="seat_taken"} 16695
+booking_reservations_declined_total{reason="per_user_limit"} 300
+booking_reservations_declined_total{reason="idempotent_replay"} 1800
+booking_seats_available{show_id="520e252d-..."} 1095
+booking_seats_held{show_id="520e252d-..."} 0
+booking_seats_confirmed{show_id="520e252d-..."} 1405
+booking_seats_capacity{show_id="520e252d-..."} 2500
+```
+
+For each show, the four `booking_seats_*` gauges equal the `counts` returned
+by `GET /shows/{id}`.
+
 ## Register — `POST /user/register`
 
 ```bash

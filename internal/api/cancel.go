@@ -16,9 +16,12 @@ var errReservationNotFound = errors.New("reservation not found")
 // cancelReservation releases the caller's own reservation. Someone else's
 // reservation answers 404 exactly like a missing one, so ids can't be probed.
 func (s *Server) cancelReservation(w http.ResponseWriter, r *http.Request) {
-	res, err := s.cancel(r.Context(), auth.UserID(r.Context()), r.PathValue("id"))
+	res, changed, err := s.cancel(r.Context(), auth.UserID(r.Context()), r.PathValue("id"))
 	switch {
 	case err == nil:
+		if changed {
+			s.metrics.cancelled.Inc()
+		}
 		writeJSON(w, http.StatusOK, res)
 	case errors.Is(err, errReservationNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
@@ -31,12 +34,12 @@ func (s *Server) cancelReservation(w http.ResponseWriter, r *http.Request) {
 }
 
 // cancel marks the reservation cancelled and frees the seats it still owns.
-// Cancelling twice returns the cancelled reservation again.
-func (s *Server) cancel(ctx context.Context, userID, reservationID string) (reservation, error) {
-	var res reservation
+// Cancelling twice returns the cancelled reservation again; changed reports
+// whether this call is the one that cancelled it.
+func (s *Server) cancel(ctx context.Context, userID, reservationID string) (res reservation, changed bool, err error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return res, err
+		return res, false, err
 	}
 	defer tx.Rollback(ctx)
 
@@ -47,13 +50,13 @@ func (s *Server) cancel(ctx context.Context, userID, reservationID string) (rese
 		FOR UPDATE`, reservationID, userID).
 		Scan(&res.ReservationID, &res.ShowID, &res.UserID, &res.Seats, &res.AmountPaise, &res.Status)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return res, errReservationNotFound
+		return res, false, errReservationNotFound
 	}
 	if err != nil {
-		return res, err
+		return res, false, err
 	}
 	if res.Status == "cancelled" {
-		return res, nil
+		return res, false, nil
 	}
 
 	// Free only seats still pointing at this reservation: a hold that expired
@@ -72,14 +75,14 @@ func (s *Server) cancel(ctx context.Context, userID, reservationID string) (rese
 		WHERE ss.show_id = owned.show_id AND ss.seat_id = owned.seat_id AND ss.reservation_id = $1`,
 		reservationID)
 	if err != nil {
-		return res, err
+		return res, false, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE reservations SET status = 'cancelled' WHERE reservation_id = $1`, reservationID); err != nil {
-		return res, err
+		return res, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return res, err
+		return res, false, err
 	}
 	res.Status = "cancelled"
-	return res, nil
+	return res, true, nil
 }

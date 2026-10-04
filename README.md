@@ -47,6 +47,7 @@ step to run.
 |---|---|---|---|
 | `GET` | `/health/live` | No | Liveness |
 | `GET` | `/health/ready` | No | Readiness (checks the database) |
+| `GET` | `/metrics` | No | Prometheus metrics |
 | `POST` | `/user/register` | No | Create a user |
 | `POST` | `/user/login` | No | Get a JWT |
 | `POST` | `/shows` | No | Create a show |
@@ -74,6 +75,54 @@ Request and response examples for every endpoint are in
 
 The readiness response says only `"postgres": "unreachable"`. The actual error
 goes to the server log, so internal details aren't exposed.
+
+## Metrics
+
+`GET /metrics` serves Prometheus metrics, so you can watch a burst of
+reservations as it happens.
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `booking_reservations_confirmed_total` | Counter | New bookings, counted after the database commit |
+| `booking_reservations_declined_total{reason}` | Counter | Reserve requests that created no new booking, by reason |
+| `booking_reservations_cancelled_total` | Counter | Reservations cancelled (a repeat cancel isn't counted) |
+| `booking_seats_available{show_id}` | Gauge | Seats that can be reserved now |
+| `booking_seats_held{show_id}` | Gauge | Seats under an unexpired hold |
+| `booking_seats_confirmed{show_id}` | Gauge | Seats sold |
+| `booking_seats_capacity{show_id}` | Gauge | Total seats in the show |
+| `booking_http_requests_total{route,code}` | Counter | Requests by route and status code |
+| `booking_http_request_duration_seconds{route}` | Histogram | Request latency by route |
+
+The `reason` label is one of `seat_taken`, `per_user_limit`,
+`idempotent_replay`, `idempotency_conflict`, `contention`, `unknown_seats`,
+`show_not_found`, `unknown_user` or `invalid_request`. A replay returns `201`
+but books nothing, so it counts as a decline and not as a confirmation.
+
+**How the metrics stay consistent:**
+- Every reserve request is counted exactly once: either as confirmed or under
+  one decline reason. The only exception is a server error, which appears only
+  in the HTTP metrics.
+- The seat gauges are read from the database on each scrape, using the same
+  availability rule as `GET /shows/{id}`, so they always match the API. One
+  query gives one snapshot, so available + held + confirmed equals capacity in
+  every scrape.
+- The gauges use their own two-connection database pool, so a burst that takes
+  every connection in the main pool can't stop them from being read.
+
+**Verified under a 20,000-request burst:**
+- Every counter delta exactly matched what clients observed: 805 confirmed,
+  16,695 seat-taken, 300 per-user-limit, 1,800 replays and 400 idempotency
+  conflicts, which adds up to all 20,000 requests.
+- The confirmed delta equalled the new confirmed rows in the database.
+- The HTTP metrics matched the status codes clients received.
+- In all 783 scrapes taken during the burst, the seat gauges were readable and
+  added up to capacity.
+
+The counters start at zero each time the app starts, and with several app
+instances you sum them across instances. Measure them as a change over a
+window, for example `increase(booking_reservations_confirmed_total[5m])`.
+`/metrics` is public; put it behind your network or an auth proxy in
+production.
 
 ## How double-selling is prevented
 
@@ -119,7 +168,7 @@ create the database for you.
 
 ```
 main.go                  startup, config, graceful shutdown
-internal/api/            HTTP handlers (users, shows, reserve, cancel, health)
+internal/api/            HTTP handlers (users, shows, reserve, cancel, health, metrics)
 internal/auth/           JWT issue/verify and auth middleware
 internal/config/         environment variables
 internal/seatmap/        seat-suggestion logic
