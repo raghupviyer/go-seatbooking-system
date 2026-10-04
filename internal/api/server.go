@@ -1,14 +1,12 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -29,7 +27,9 @@ func New(db *pgxpool.Pool, cfg config.Config, tokens *auth.Tokens) *Server {
 
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", s.health)
+	mux.HandleFunc("GET /health/live", s.live)
+	mux.HandleFunc("GET /health/ready", s.ready)
+	mux.HandleFunc("GET /health", s.ready)
 	mux.HandleFunc("POST /user/register", s.register)
 	mux.HandleFunc("POST /user/login", s.login)
 	mux.HandleFunc("POST /shows", s.createShow)
@@ -37,17 +37,6 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /shows/{id}/reserve", s.tokens.Require(http.HandlerFunc(s.reserve)))
 	mux.Handle("DELETE /reservations/{id}", s.tokens.Require(http.HandlerFunc(s.cancelReservation)))
 	return mux
-}
-
-func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-	defer cancel()
-
-	if err := s.db.Ping(ctx); err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"postgres": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"postgres": "ok"})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

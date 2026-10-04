@@ -22,9 +22,21 @@ Tables are created automatically on startup.
 
 ---
 
-## Health — `GET /health`
+## Health
 
-`200 {"postgres": "ok"}`, or `503` if the database is unreachable.
+| Endpoint | Checks | Use it for |
+|----------|--------|------------|
+| `GET /health/live` | Only that the process is serving HTTP; never touches the database | Liveness: restart the app if this fails |
+| `GET /health/ready` | Runs `SELECT 1` on Postgres within 2 seconds | Readiness: send traffic only while this is `200` |
+| `GET /health` | Same as `/health/ready` | Kept for compatibility |
+
+Liveness always returns `200 {"status": "ok"}`, so a database outage doesn't
+get the app restarted for nothing.
+
+Readiness fails closed. Any database error, or no answer within 2 seconds,
+returns `503 {"status": "unavailable", "postgres": "unreachable"}`. When it's
+healthy it returns `200 {"status": "ok", "postgres": "ok"}`. The underlying
+error is logged by the server, not returned to the caller.
 
 ## Register — `POST /user/register`
 
