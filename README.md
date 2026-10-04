@@ -238,7 +238,8 @@ internal/seatmap/        seat-suggestion logic
 internal/store/          schema and startup migration
 cmd/burst/               on-sale stampede load script (make burst / ./burst.sh)
 docs/API.md              endpoint reference
-writeup.md               design notes and how the project was built
+WRITEUP.md               design decisions and trade-offs
+docs/ai-prompt.md        the prompt used to build the first version
 ```
 
 ## Logging
