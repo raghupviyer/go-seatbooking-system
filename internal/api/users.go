@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -46,7 +45,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), s.cfg.SaltRounds)
 	if err != nil {
-		log.Printf("register: hash: %v", err)
+		logFrom(r.Context()).Error("register: hash", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -56,7 +55,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("register: insert: %v", err)
+		logFrom(r.Context()).Error("register: insert", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -81,7 +80,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("login: lookup: %v", err)
+		logFrom(r.Context()).Error("login: lookup", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -92,13 +91,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 	token, exp, err := s.tokens.Issue(req.UserID)
 	if err != nil {
-		log.Printf("login: sign: %v", err)
+		logFrom(r.Context()).Error("login: sign", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	refresh, err := randomToken()
 	if err != nil {
-		log.Printf("login: refresh token: %v", err)
+		logFrom(r.Context()).Error("login: refresh token", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -106,7 +105,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO user_sessions (user_id, refresh_token, expires_at) VALUES ($1, $2, $3)`,
 		req.UserID, refresh, time.Now().Add(refreshTTL))
 	if err != nil {
-		log.Printf("login: session: %v", err)
+		logFrom(r.Context()).Error("login: session", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}

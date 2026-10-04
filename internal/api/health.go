@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"time"
 )
@@ -24,7 +23,7 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 
 	var one int
 	if err := s.db.QueryRow(ctx, `SELECT 1`).Scan(&one); err != nil || one != 1 {
-		log.Printf("readiness: postgres: %v", err)
+		logFrom(r.Context()).Error("readiness: postgres", "err", err)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable", "postgres": "unreachable"})
 		return
 	}

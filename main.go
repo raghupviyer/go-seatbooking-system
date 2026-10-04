@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,8 +19,10 @@ import (
 
 func main() {
 	cfg, err := config.Load()
+	// Logs go to stdout as JSON so the platform's log viewer can index them.
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})))
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		fatal("config", err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -28,17 +30,17 @@ func main() {
 
 	db, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("postgres: %v", err)
+		fatal("postgres", err)
 	}
 	defer db.Close()
 
 	if err := store.Migrate(ctx, db); err != nil {
-		log.Fatalf("migrate: %v", err)
+		fatal("migrate", err)
 	}
 
 	srv := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           api.New(db, cfg, auth.NewTokens(cfg.JWTSecret)).Routes(),
+		Addr:    ":" + cfg.Port,
+		Handler: api.New(db, cfg, auth.NewTokens(cfg.JWTSecret)).Routes(),
 		// Generous enough that a connection queued behind a burst of thousands is
 		// still served, while still cutting off clients that never send headers.
 		ReadHeaderTimeout: 30 * time.Second,
@@ -46,9 +48,9 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("listening on %s", srv.Addr)
+		slog.Info("listening", "addr", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("server: %v", err)
+			fatal("server", err)
 		}
 	}()
 
@@ -56,4 +58,9 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	srv.Shutdown(shutdownCtx)
+}
+
+func fatal(msg string, err error) {
+	slog.Error(msg, "err", err)
+	os.Exit(1)
 }
