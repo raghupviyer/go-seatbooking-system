@@ -1,0 +1,14 @@
+# Secrets
+.env
+
+# Binaries
+*.exe
+*.test
+*.out
+/bin/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
