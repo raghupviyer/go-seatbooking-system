@@ -106,6 +106,68 @@ background job.
   - available + held + confirmed equal to the total seat count throughout;
   - every user within their seat limit.
 
+## Burst test (on-sale stampede)
+
+One command reproduces an on-sale stampede against any running instance,
+local or deployed. It needs only Go and the app's base URL:
+
+```bash
+# any of these; BASE_URL defaults to http://localhost:8080 for make
+make burst BASE_URL=https://your-app.onrender.com
+./burst.sh https://your-app.onrender.com
+go run ./cmd/burst https://your-app.onrender.com      # works on Windows too
+```
+
+Tune it with flags, for example `./burst.sh <BASE_URL> -users 1000 -rows 20`,
+or `make burst BASE_URL=... BURST_FLAGS="-users 1000"`. Run
+`go run ./cmd/burst -h` for the full list (`-users`, `-rows`, `-cols`,
+`-limit`, `-retry-pct`, `-setup-concurrency`, `-timeout`, `-seed`).
+
+What it does:
+
+1. Registers and logs in N users (default 300). Each run uses fresh user names
+   and shows, so it can be repeated against the same deployment.
+2. **Hot-seat storm:** every user reserves the same seat at the same instant.
+3. **Stampede:** every user reserves 1-4 seats at once in a 10×10 show, skewed
+   to the front rows. 10% of requests are also sent twice under the same
+   idempotency key, like a double click.
+4. Prints the outcome distribution (confirmed, declined by reason, 5xx) with
+   latency percentiles, then reconciles the clients' results against
+   `GET /shows/{id}`.
+
+Example output:
+
+```
+== hot-seat storm (same seat, all users) ==
+500 requests in 1.12s (446 req/s)   latency p50=675ms p95=1.051s p99=1.076s max=1.078s
+  declined: seat_taken                499   99.8%
+  confirmed                             1    0.2%
+
+== stampede (random seats, skewed to front rows) ==
+547 requests in 1.238s (442 req/s)   latency p50=478ms p95=922ms p99=1.033s max=1.072s
+  declined: seat_taken                496   90.7%
+  confirmed                            44    8.0%
+  idempotent_replay                     7    1.3%
+
+== reconciliation ==
+hot-seat show  clients told: 1 reservations = 1 seats | server: confirmed=1 held=0 available=0 total=1
+stampede show  clients told: 44 reservations = 83 seats | server: confirmed=83 held=0 available=17 total=100
+
+RESULT: PASS - no seat sold twice, counts reconcile, no 5xx
+```
+
+The run fails (exit code `1`) if any of these checks fails:
+
+- a seat was confirmed to two clients;
+- the hot seat had other than exactly one winner;
+- the seats confirmed to clients differ from the server's `confirmed` count;
+- a user went over `limit_per_user`;
+- seats are still `held`, or `available + held + confirmed` doesn't equal the total;
+- any request got a 5xx or a transport error.
+
+On a free hosting tier, setup takes longer because bcrypt runs once per user.
+Lower `-users` or `-setup-concurrency` if registration times out.
+
 ## Deploying to Render
 
 Render builds the `Dockerfile` but ignores `docker-compose.yml`, so it won't
@@ -125,6 +187,7 @@ internal/auth/           JWT issue/verify and auth middleware
 internal/config/         environment variables
 internal/seatmap/        seat-suggestion logic
 internal/store/          schema and startup migration
+cmd/burst/               on-sale stampede load script (make burst / ./burst.sh)
 docs/API.md              endpoint reference
 writeup.md               design notes and how the project was built
 ```
